@@ -2,7 +2,7 @@ replicaCount: 2
 
 image:
   repository: ghcr.io/kunalkthalautiya/gitops-demo-app
-  tag: "43e471c"
+  tag: "cdfd237"
   pullPolicy: IfNotPresent
 
 # Repo/registry are private, so the cluster needs a docker-registry secret
