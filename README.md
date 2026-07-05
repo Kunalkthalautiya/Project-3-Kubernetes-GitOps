@@ -1,8 +1,9 @@
 # Project 3 — Kubernetes + GitOps (Industry-Style)
 
-A Kubernetes deployment pipeline modeled on how real teams run GitOps: Helm for packaging,
+A multi-tier Kubernetes deployment modeled on how real teams run GitOps: Helm for packaging,
 GitHub Actions for CI, GHCR as the image registry, Sealed Secrets for encrypted credentials
-in git, and ArgoCD continuously reconciling the cluster to match this repo.
+in git, ArgoCD continuously reconciling the cluster to match this repo, and a stateful
+Postgres data tier backing the app.
 
 ## Architecture
 
@@ -17,6 +18,9 @@ Git repo (charts/gitops-demo) is now the source of truth
         |
         v
 ArgoCD watches the repo -> auto-syncs -> Kubernetes cluster (minikube)
+        |
+        v
+   App tier (Deployment, 2 replicas) <--> Data tier (Postgres StatefulSet + PVC)
 ```
 
 No one runs `kubectl apply` or `docker push` by hand — the pipeline and ArgoCD do it.
@@ -32,14 +36,22 @@ No one runs `kubectl apply` or `docker push` by hand — the pipeline and ArgoCD
 | Vulnerability scan  | Trivy (report-only in this demo)   |
 | GitOps sync         | ArgoCD                             |
 | Secrets in git      | Sealed Secrets (Bitnami)           |
-| Autoscaling         | HPA (CPU-based)                    |
+| App tier            | Flask (Deployment, 2 replicas)     |
+| Data tier           | Postgres (StatefulSet + PVC)       |
+| Autoscaling         | HPA (CPU-based, app tier only)     |
 | Availability        | PodDisruptionBudget                |
 
 ## Repo structure
 
 ```
-app/                      Flask app, Dockerfile, pytest tests
-charts/gitops-demo/       Helm chart — deployment, service, HPA, PDB, sealed secret
+app/                              Flask app, Dockerfile, pytest tests
+charts/gitops-demo/
+  templates/deployment.yaml       App tier
+  templates/service.yaml          App tier Service
+  templates/postgres-statefulset.yaml   Data tier (StatefulSet + volumeClaimTemplate)
+  templates/postgres-service.yaml       Headless Service for Postgres DNS
+  templates/sealedsecret.yaml      Encrypted app + DB credentials
+  templates/hpa.yaml, pdb.yaml     Autoscaling + availability (app tier)
 argocd/application.yaml   ArgoCD Application CR (cluster-side, not synced by ArgoCD itself)
 .github/workflows/ci.yml  CI/CD pipeline
 ```
@@ -55,12 +67,28 @@ argocd/application.yaml   ArgoCD Application CR (cluster-side, not synced by Arg
 
 ArgoCD picks up that commit and rolls the new image out automatically.
 
+## Data tier
+
+Postgres runs as a `StatefulSet` (stable network identity + a `PersistentVolumeClaim` per pod,
+via `volumeClaimTemplates`), backed by a headless `Service` (`clusterIP: None`) for stable DNS
+(`postgres.gitops-demo.svc.cluster.local`). The app connects to it via `DB_HOST=postgres`.
+
+`GET /api/visits` on the app inserts a row and returns the running count — a simple way to prove
+the app is actually persisting to Postgres rather than talking to a mock/in-memory store.
+
+**Gotcha hit and fixed**: the Postgres readiness/liveness probes originally used
+`pg_isready -U $(POSTGRES_USER)` — the `$(VAR)` substitution syntax only works in a container's
+`command`/`args` fields, not in `exec.command` for probes (no shell involved there). Fixed by
+wrapping it as `["sh", "-c", "pg_isready -U $POSTGRES_USER"]` so the shell does the substitution.
+
 ## Secrets handling
 
 Real credentials are never committed in plaintext. `charts/gitops-demo/templates/sealedsecret.yaml`
 holds a `SealedSecret` — data encrypted with the in-cluster Sealed Secrets controller's public key.
-Only that controller (running in the target cluster) can decrypt it back into a real `Secret`
-that the app consumes via `envFrom`. Losing control of this git repo does not leak the secret.
+Only that controller (running in the target cluster) can decrypt it back into a real `Secret`,
+containing both the app's `DEMO_API_KEY` and the real Postgres credentials
+(`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`), consumed via `envFrom` by both the app
+Deployment and the Postgres StatefulSet. Losing control of this git repo does not leak the secret.
 
 ## Registry & pull access
 
@@ -93,3 +121,5 @@ kubectl create secret docker-registry ghcr-pull-secret -n gitops-demo \
 - Move the cluster itself from minikube to EKS, reusing the Terraform modules from Project 2.
 - Replace the commit-back tag bump with **Argo CD Image Updater** for a fully native GitOps flow (no bot commits).
 - Add a staging environment via a second ArgoCD `Application` + Helm values overlay (`values-staging.yaml`).
+- Replace in-cluster Postgres with a managed database (RDS, as in Project 2) for a production-realistic setup — the in-cluster StatefulSet here is deliberately chosen to demonstrate stateful workload management in Kubernetes itself.
+- Add a `pg_dump` CronJob for backups — right now data only survives on the PVC, with no off-cluster backup.
