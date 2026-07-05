@@ -58,3 +58,81 @@ module "eks" {
     Project = "project-3-eks"
   }
 }
+
+# -------------------------------------------------------------------
+# RDS PostgreSQL — replaces the in-cluster Postgres StatefulSet with a
+# managed database, matching how a production setup would run this.
+# -------------------------------------------------------------------
+
+resource "random_password" "db" {
+  length  = 20
+  special = false
+}
+
+resource "aws_db_subnet_group" "this" {
+  name       = "${var.cluster_name}-db"
+  subnet_ids = module.vpc.private_subnets
+
+  tags = {
+    Project = "project-3-eks"
+  }
+}
+
+resource "aws_security_group" "rds" {
+  name_prefix = "${var.cluster_name}-rds-"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    description     = "Postgres from EKS nodes"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [module.eks.node_security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Project = "project-3-eks"
+  }
+}
+
+resource "aws_db_instance" "postgres" {
+  identifier     = "${var.cluster_name}-db"
+  engine         = "postgres"
+  engine_version = "16.9"
+  instance_class = "db.t3.micro"
+
+  allocated_storage = 20
+  storage_type      = "gp2"
+
+  db_name  = "gitopsdemo"
+  username = "gitopsdemo"
+  password = random_password.db.result
+
+  db_subnet_group_name   = aws_db_subnet_group.this.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  publicly_accessible    = false
+
+  multi_az                = false # single-AZ for demo cost; set true for real prod HA
+  backup_retention_period = 1
+  skip_final_snapshot     = true
+  deletion_protection     = false
+
+  tags = {
+    Project = "project-3-eks"
+  }
+}
+
+output "rds_endpoint" {
+  value = aws_db_instance.postgres.address
+}

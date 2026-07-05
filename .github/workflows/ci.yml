@@ -61,20 +61,5 @@ jobs:
           exit-code: "0"
           format: table
 
-  update-manifest:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Bump image tag in Helm values (GitOps commit-back)
-        run: |
-          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
-          sed -i "s/tag: .*/tag: \"${IMAGE_TAG}\"/" charts/gitops-demo/values.yaml
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add charts/gitops-demo/values.yaml
-          git diff --cached --quiet && echo "No changes to commit" || git commit -m "ci: bump image tag to ${IMAGE_TAG}"
-          git push
+  # No "bump image tag" job here anymore — Argo CD Image Updater watches GHCR
+  # directly and writes the new tag to values.yaml itself. See argocd/application.yaml.

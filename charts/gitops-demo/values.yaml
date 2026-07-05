@@ -36,12 +36,16 @@ env:
   - name: APP_VERSION
     value: "v1"
   - name: DB_HOST
-    value: postgres
+    value: "project3-eks-db.cvmqeqq2igbe.ap-south-1.rds.amazonaws.com"
   - name: DB_PORT
     value: "5432"
 
+# In-cluster Postgres StatefulSet — disabled now that the app points at a
+# managed RDS instance (infra/eks/main.tf). Kept here (rather than deleted)
+# so this chart still works standalone on minikube: set postgres.enabled
+# true and DB_HOST back to "postgres" for that path.
 postgres:
-  enabled: true
+  enabled: false
   image: postgres:16-alpine
   storage: 1Gi
   storageClassName: gp2

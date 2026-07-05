@@ -3,6 +3,16 @@ kind: Application
 metadata:
   name: gitops-demo-app
   namespace: argocd
+  annotations:
+    # Argo CD Image Updater: watches GHCR for new commit-SHA tags and writes
+    # the new tag back to values.yaml itself — replaces the CI "commit-back" job.
+    argocd-image-updater.argoproj.io/image-list: appimage=ghcr.io/kunalkthalautiya/gitops-demo-app
+    argocd-image-updater.argoproj.io/appimage.update-strategy: latest
+    argocd-image-updater.argoproj.io/appimage.allow-tags: regexp:^[0-9a-f]{7}$
+    argocd-image-updater.argoproj.io/appimage.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/appimage.pull-secret: pullsecret:gitops-demo/ghcr-pull-secret
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
 spec:
   project: default
   source:
