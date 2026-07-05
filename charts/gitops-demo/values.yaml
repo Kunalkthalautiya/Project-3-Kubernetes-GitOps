@@ -1,0 +1,44 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/kunalkthalautiya/gitops-demo-app
+  tag: "v1"
+  pullPolicy: IfNotPresent
+
+# Repo/registry are private, so the cluster needs a docker-registry secret
+# named here to pull the image (created out-of-band, not committed to git).
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+service:
+  port: 80
+  targetPort: 5000
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+env:
+  - name: APP_VERSION
+    value: "v1"
+
+# Secrets injected via Sealed Secrets controller (see templates/secret-envfrom.yaml).
+# The Secret named below is decrypted in-cluster from a SealedSecret committed to git —
+# the plaintext never touches the repo.
+secretEnvFrom:
+  enabled: true
+  secretName: gitops-demo-secret

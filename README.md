@@ -1,48 +1,95 @@
-# Project 3 — Kubernetes + GitOps (ArgoCD)
+# Project 3 — Kubernetes + GitOps (Industry-Style)
 
-Local Kubernetes deployment demo using GitOps principles — instead of `kubectl apply`,
-ArgoCD watches this Git repository and automatically syncs the cluster state to match
-what's committed in the `k8s/` folder.
+A Kubernetes deployment pipeline modeled on how real teams run GitOps: Helm for packaging,
+GitHub Actions for CI, GHCR as the image registry, Sealed Secrets for encrypted credentials
+in git, and ArgoCD continuously reconciling the cluster to match this repo.
 
 ## Architecture
 
 ```
-Git repo (k8s/ manifests) --> ArgoCD (watches repo) --> Kubernetes cluster (minikube)
+Developer pushes to app/
+        |
+        v
+GitHub Actions:  test -> build image -> push to GHCR -> scan (Trivy) -> bump image tag in values.yaml (commit-back)
+        |
+        v
+Git repo (charts/gitops-demo) is now the source of truth
+        |
+        v
+ArgoCD watches the repo -> auto-syncs -> Kubernetes cluster (minikube)
 ```
 
-Change a manifest, commit it, and ArgoCD auto-syncs the cluster — no manual `kubectl apply`.
+No one runs `kubectl apply` or `docker push` by hand — the pipeline and ArgoCD do it.
 
 ## Stack
 
-| Component  | Tool                     |
-|------------|--------------------------|
-| Cluster    | minikube                 |
-| App        | Flask (Python)           |
-| GitOps     | ArgoCD                   |
-| Container  | Docker                   |
+| Concern            | Tool                              |
+|---------------------|------------------------------------|
+| Cluster             | minikube (local)                   |
+| Packaging           | Helm chart                         |
+| CI                  | GitHub Actions                     |
+| Image registry      | GHCR (ghcr.io), private            |
+| Vulnerability scan  | Trivy (report-only in this demo)   |
+| GitOps sync         | ArgoCD                             |
+| Secrets in git      | Sealed Secrets (Bitnami)           |
+| Autoscaling         | HPA (CPU-based)                    |
+| Availability        | PodDisruptionBudget                |
 
-## Structure
+## Repo structure
 
 ```
-app/         Flask app + Dockerfile
-k8s/         Kubernetes manifests (namespace, deployment, service) — the GitOps source of truth
-argocd/      ArgoCD Application definition
+app/                      Flask app, Dockerfile, pytest tests
+charts/gitops-demo/       Helm chart — deployment, service, HPA, PDB, sealed secret
+argocd/application.yaml   ArgoCD Application CR (cluster-side, not synced by ArgoCD itself)
+.github/workflows/ci.yml  CI/CD pipeline
 ```
 
-## Local Setup
+## CI/CD flow (`.github/workflows/ci.yml`)
 
-1. Start the cluster: `minikube start`
-2. Build the app image directly into minikube's Docker daemon:
-   ```
-   eval $(minikube docker-env)
-   docker build -t gitops-demo-app:v1 ./app
-   ```
-3. Install ArgoCD: `kubectl create namespace argocd && kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml`
-4. Apply the ArgoCD `Application` resource (`argocd/application.yaml`) so ArgoCD starts watching this repo's `k8s/` folder.
-5. Access the ArgoCD UI: `kubectl port-forward svc/argocd-server -n argocd 8080:443`
+1. **test** — runs `pytest` against the Flask app
+2. **build-and-push** — builds the Docker image, tags it with the short commit SHA, pushes to
+   `ghcr.io/kunalkthalautiya/gitops-demo-app`, then scans it with Trivy for CRITICAL/HIGH CVEs
+3. **update-manifest** — bumps `charts/gitops-demo/values.yaml`'s `image.tag` to the new SHA and
+   commits it back to `main` (GitOps commit-back pattern). This only touches `charts/`, which is
+   outside the workflow's trigger paths, so it doesn't retrigger itself.
 
-## Next Steps (future iteration)
+ArgoCD picks up that commit and rolls the new image out automatically.
 
-- Push this repo to GitHub and point `argocd/application.yaml`'s `repoURL` at it — real GitOps over a remote repo instead of a local one.
-- Add a CI step (GitHub Actions) that builds/pushes the image and bumps the image tag in `k8s/deployment.yaml`, letting ArgoCD auto-deploy every merge.
-- Move from minikube to EKS (Terraform, reusing patterns from Project 2) for a production-grade cluster.
+## Secrets handling
+
+Real credentials are never committed in plaintext. `charts/gitops-demo/templates/sealedsecret.yaml`
+holds a `SealedSecret` — data encrypted with the in-cluster Sealed Secrets controller's public key.
+Only that controller (running in the target cluster) can decrypt it back into a real `Secret`
+that the app consumes via `envFrom`. Losing control of this git repo does not leak the secret.
+
+## Registry & pull access
+
+The GHCR package is private (matches the private repo). The cluster needs an
+`imagePullSecret` (`ghcr-pull-secret` in the `gitops-demo` namespace) to pull it — created
+out-of-band with `kubectl create secret docker-registry`, not stored in git.
+
+## Local setup
+
+```bash
+minikube start --driver=docker
+
+# ArgoCD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml --server-side --force-conflicts
+
+# Sealed Secrets controller
+kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/controller.yaml
+
+# Register this (private) repo with ArgoCD — see argocd/application.yaml for the repo Secret format
+kubectl apply -f argocd/application.yaml
+
+# Image pull secret for the private GHCR package
+kubectl create secret docker-registry ghcr-pull-secret -n gitops-demo \
+  --docker-server=ghcr.io --docker-username=<gh-username> --docker-password=<gh-token-with-read:packages>
+```
+
+## Next steps
+
+- Move the cluster itself from minikube to EKS, reusing the Terraform modules from Project 2.
+- Replace the commit-back tag bump with **Argo CD Image Updater** for a fully native GitOps flow (no bot commits).
+- Add a staging environment via a second ArgoCD `Application` + Helm values overlay (`values-staging.yaml`).

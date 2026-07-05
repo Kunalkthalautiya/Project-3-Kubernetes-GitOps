@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r app/requirements-dev.txt
+      - run: pytest app/tests -v
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: vars
+        run: |
+          IMAGE="ghcr.io/$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')/gitops-demo-app"
+          TAG="${GITHUB_SHA::7}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          push: true
+          tags: |
+            ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.image_tag }}
+            ${{ steps.vars.outputs.image }}:latest
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.image_tag }}
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          format: table
+
+  update-manifest:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump image tag in Helm values (GitOps commit-back)
+        run: |
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          sed -i "s/tag: .*/tag: \"${IMAGE_TAG}\"/" charts/gitops-demo/values.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add charts/gitops-demo/values.yaml
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "ci: bump image tag to ${IMAGE_TAG}"
+          git push

@@ -6,9 +6,12 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git://host.minikube.internal:9418/Project-3
-    targetRevision: HEAD
-    path: k8s
+    repoURL: https://github.com/Kunalkthalautiya/Project-3-Kubernetes-GitOps
+    targetRevision: main
+    path: charts/gitops-demo
+    helm:
+      valueFiles:
+        - values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: gitops-demo
