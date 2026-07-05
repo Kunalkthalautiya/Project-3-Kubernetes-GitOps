@@ -8,6 +8,20 @@ Postgres data tier backing the app, and Terraform-provisioned AWS EKS as the rea
 
 Full docs: [docs/architecture.md](docs/architecture.md) · [docs/eks-migration.md](docs/eks-migration.md) · [docs/troubleshooting.md](docs/troubleshooting.md)
 
+## Screenshots
+
+| ArgoCD — resource tree (all Healthy/Synced) | ArgoCD — application tile |
+|---|---|
+| ![ArgoCD resource tree](docs/screenshots/argocd-resource-tree.png) | ![ArgoCD application tile](docs/screenshots/argocd-applications-tile.png) |
+
+| App response | `/api/visits` (Postgres persistence) |
+|---|---|
+| ![App home](docs/screenshots/app-home.png) | ![API visits](docs/screenshots/app-api-visits.png) |
+
+| EKS cluster (AWS Console) | EKS nodes (2x t3.small, Ready) |
+|---|---|
+| ![EKS cluster overview](docs/screenshots/eks-cluster-overview.png) | ![EKS compute nodes](docs/screenshots/eks-compute-nodes.png) |
+
 ## Architecture
 
 ```
