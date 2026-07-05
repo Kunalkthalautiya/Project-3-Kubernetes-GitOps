@@ -35,6 +35,23 @@ podDisruptionBudget:
 env:
   - name: APP_VERSION
     value: "v1"
+  - name: DB_HOST
+    value: postgres
+  - name: DB_PORT
+    value: "5432"
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 1Gi
+  storageClassName: standard
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
 
 # Secrets injected via Sealed Secrets controller (see templates/secret-envfrom.yaml).
 # The Secret named below is decrypted in-cluster from a SealedSecret committed to git —
