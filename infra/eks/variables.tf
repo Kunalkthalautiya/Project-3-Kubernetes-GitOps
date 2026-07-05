@@ -22,3 +22,9 @@ variable "node_desired_size" {
   type    = number
   default = 1
 }
+
+variable "alert_email" {
+  description = "Email address for CloudWatch alarm notifications (leave empty to skip the subscription)"
+  type        = string
+  default     = ""
+}

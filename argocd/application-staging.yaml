@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-demo-app-staging
+  namespace: argocd
+  annotations:
+    # Same image-tracking setup as prod (see application.yaml) — staging picks up
+    # new commit-SHA tags independently since it's a separate Application/values file.
+    argocd-image-updater.argoproj.io/image-list: appimage=ghcr.io/kunalkthalautiya/gitops-demo-app
+    argocd-image-updater.argoproj.io/appimage.update-strategy: latest
+    argocd-image-updater.argoproj.io/appimage.allow-tags: regexp:^[0-9a-f]{7}$
+    argocd-image-updater.argoproj.io/appimage.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/appimage.pull-secret: pullsecret:gitops-demo-staging/ghcr-pull-secret
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/write-back-target: helmvalues:/values-staging.yaml
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Kunalkthalautiya/Project-3-Kubernetes-GitOps
+    targetRevision: main
+    path: charts/gitops-demo
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitops-demo-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

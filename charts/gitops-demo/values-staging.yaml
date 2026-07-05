@@ -1,0 +1,23 @@
+# Overlay applied on top of values.yaml for the staging environment
+# (argocd/application-staging.yaml uses both files).
+
+environment: staging
+
+replicaCount: 1
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2
+
+podDisruptionBudget:
+  enabled: false # not worth it at 1 replica
+
+env:
+  - name: APP_VERSION
+    value: "staging"
+  - name: DB_HOST
+    value: "project3-eks-db.cvmqeqq2igbe.ap-south-1.rds.amazonaws.com"
+  - name: DB_PORT
+    value: "5432"
+  - name: POSTGRES_DB
+    value: "gitopsdemo_staging" # separate logical DB on the same shared RDS instance
