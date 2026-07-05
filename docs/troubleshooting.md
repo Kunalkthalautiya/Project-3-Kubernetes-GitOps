@@ -65,11 +65,40 @@ keys are per-controller-instance; had to re-seal for EKS's controller.
 See [eks-migration.md](eks-migration.md#3-no-default-ebs-csi-driver-wrong-storage-class) — no EBS
 CSI driver installed by default, and minikube's `standard` storage class doesn't exist on EKS.
 
+## 10. Wrong RDS engine version guessed
+See [eks-migration.md](eks-migration.md#4-rds-engine-version-not-available-in-this-region) —
+`postgres 16.4` doesn't exist in `ap-south-1`; checked actually-available versions via
+`aws rds describe-db-engine-versions` instead of guessing.
+
+## 11. Argo CD Image Updater install manifest 404
+**Symptom**: `kubectl apply -f .../argocd-image-updater/stable/manifests/install.yaml` → 404.
+**Cause**: assumed the same `manifests/install.yaml` path convention as ArgoCD's own repo; this
+project keeps its install manifest at `config/install.yaml` instead, and has no `stable` branch
+alias — needs a real tag (e.g. `v1.2.2`).
+**Fix**: checked the repo's actual contents (`gh api repos/.../contents/config`) before guessing
+another path, then pinned to `https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/v1.2.2/config/install.yaml`.
+
+## 12. Staging Application stuck on a stale git revision
+**Symptom**: `gitops-demo-app-staging` failed with `values-staging.yaml: no such file or directory`
+even though the file was already committed and pushed to GitHub.
+**Cause**: ArgoCD's repo-server had cached an older commit from before the file existed; the
+`Application`'s `status.sync.revision` showed the branch name (`main`) rather than a resolved
+commit SHA, a sign the comparison was stale.
+**Fix**: `kubectl patch application ... -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'`
+to force a fresh clone/compare instead of waiting for the next poll interval.
+
+## 13. RDS in a private subnet — no `psql` from a laptop
+See [eks-migration.md](eks-migration.md#6-rds-is-in-a-private-subnet--no-direct-psql-from-a-laptop)
+— had to run `CREATE DATABASE` from a throwaway pod inside the cluster, not from the local machine.
+
 ## Non-bugs worth noting (design decisions, not mistakes)
 - **AWS credentials and a GitHub PAT were pasted directly into chat** during this project's setup.
   Both were treated as compromised on sight: verified whether they worked, then the user was told
   to rotate/deactivate them regardless of validity. Chat transcripts are not a safe credential
   channel — prefer `aws configure` / `gh auth login` run locally, never pasted.
-- **Terraform state and `.terraform/` are gitignored**, not committed — state files can contain
-  sensitive values, and a real setup would use a remote backend (S3 + DynamoDB) instead of local
-  state, as called out in the README's "Next steps".
+- **Terraform state now lives in S3 + DynamoDB** (`infra/bootstrap/`), migrated from local state
+  with `terraform init -migrate-state`. Local `.tfstate` files are gitignored regardless — they
+  can contain sensitive values and shouldn't be committed even temporarily.
+- **RDS runs single-AZ, not Multi-AZ**, and the CI "commit-back" pattern was fully replaced (not
+  left running alongside Image Updater) — both are one-line/one-annotation changes flagged in the
+  README rather than half-implemented in parallel with their replacements.

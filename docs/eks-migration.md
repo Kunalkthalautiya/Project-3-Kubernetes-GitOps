@@ -11,11 +11,21 @@ modules — the standard way most real orgs stand up EKS, rather than hand-rolli
 - An EKS cluster (`project3-eks`, Kubernetes 1.30) with public endpoint access.
 - One managed node group, `t3.small`, desired size configurable (`node_desired_size` variable).
 - KMS key for cluster secrets encryption, OIDC provider, IAM roles — all handled by the module.
+- An RDS `db.t3.micro` PostgreSQL instance, subnet group, and a security group scoped to allow
+  traffic only from the EKS node security group (`module.eks.node_security_group_id`).
+- CloudWatch alarms (RDS CPU/storage/connections) + an SNS topic for alerting.
+- Remote state in S3 + DynamoDB (`infra/bootstrap/`) instead of a local `terraform.tfstate`.
 
 ## Setup
 
 ```bash
-cd infra/eks
+# One-time: create the remote state backend
+cd infra/bootstrap
+terraform init
+terraform apply -auto-approve
+
+# Then the actual cluster + RDS + monitoring
+cd ../eks
 terraform init
 terraform plan -out=tfplan     # free — creates nothing, just shows what would be created
 terraform apply "tfplan"       # NOT free — starts real AWS billing immediately
@@ -24,9 +34,10 @@ aws eks update-kubeconfig --region ap-south-1 --name project3-eks
 kubectl get nodes              # confirm nodes are Ready
 ```
 
-Then repeat the ArgoCD + Sealed Secrets + repo-creds + imagePullSecret setup from the main
-[README](../README.md#local-setup-minikube), pointed at this cluster's `kubectl` context instead
-of minikube's. These don't carry over between clusters — see the gotchas below.
+Then repeat the ArgoCD + Sealed Secrets + Argo CD Image Updater + repo-creds + imagePullSecret
+setup from the main [README](../README.md#local-setup-minikube), pointed at this cluster's
+`kubectl` context instead of minikube's. These don't carry over between clusters — see the
+gotchas below.
 
 ## Cost
 
@@ -35,12 +46,15 @@ Running continuously in `ap-south-1`:
 | Resource | ~Monthly cost |
 |---|---|
 | EKS control plane | $73 ($0.10/hr) |
-| 1× `t3.small` node | $15 |
+| 2× `t3.small` nodes | $30 |
 | NAT Gateway | $32 + data transfer |
+| RDS `db.t3.micro` (single-AZ) | $15 |
 | KMS key | $1 |
-| **Total (1 node)** | **~$120** |
+| CloudWatch alarms + SNS | <$1 |
+| **Total** | **~$150** |
 
-Scaling to 2 nodes (see below) adds another ~$15/month.
+Enabling `multi_az = true` on the RDS instance roughly doubles its cost (~$30/month instead of
+~$15) in exchange for automatic failover to a standby in a second AZ.
 
 ## Gotchas hit during migration (cluster-specific things that don't carry over from minikube)
 
@@ -98,6 +112,35 @@ aws eks create-addon --cluster-name project3-eks --addon-name aws-ebs-csi-driver
 Also: a `StatefulSet`'s `volumeClaimTemplates` is immutable — changing the storage class on an
 existing StatefulSet requires deleting and letting ArgoCD (`selfHeal: true`) recreate it, not an
 in-place patch.
+
+### 4. RDS engine version not available in this region
+`engine_version = "16.4"` failed: `InvalidParameterCombination: Cannot find version 16.4 for
+postgres`. AWS only offers specific minor versions per engine/region, and they change over time —
+guessing a plausible-looking version fails the same way the `trivy-action` tag guess did (see
+[troubleshooting.md](troubleshooting.md)). Fixed by checking what's actually available first:
+```bash
+aws rds describe-db-engine-versions --engine postgres --region ap-south-1 \
+  --query 'DBEngineVersions[?starts_with(EngineVersion, `16.`)].EngineVersion' --output text
+```
+
+### 5. Sealed Secrets are namespace-scoped, not just cluster-scoped
+Adding a staging environment (separate `gitops-demo-staging` namespace, same cluster) surfaced a
+second layer of the Sealed Secrets gotcha above: encryption is bound to a specific *namespace*,
+not just a specific cluster. A `SealedSecret` sealed for `gitops-demo` cannot decrypt in
+`gitops-demo-staging`, even on the identical cluster/controller. Each namespace needs its own
+sealed file (`templates/sealedsecret.yaml` vs `templates/sealedsecret-staging.yaml`), gated by a
+`{{- if eq .Values.environment "..." }}` so only one renders per values file.
+
+### 6. RDS is in a private subnet — no direct `psql` from a laptop
+Creating the staging environment's separate logical database (`CREATE DATABASE
+gitopsdemo_staging`) couldn't be done via `psql` from the local machine — the RDS security group
+only allows traffic from the EKS node security group, and RDS itself isn't publicly accessible.
+Fixed by running the `CREATE DATABASE` from inside the cluster instead:
+```bash
+kubectl run psql-tmp --image=postgres:16-alpine --rm -i --restart=Never \
+  --env="PGPASSWORD=$DB_PASS" -- \
+  psql -h "$RDS_HOST" -U gitopsdemo -d gitopsdemo -c "CREATE DATABASE gitopsdemo_staging;"
+```
 
 ## Teardown
 
