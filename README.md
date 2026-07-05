@@ -10,17 +10,36 @@ Full docs: [docs/architecture.md](docs/architecture.md) · [docs/eks-migration.m
 
 ## Screenshots
 
-| ArgoCD — resource tree (all Healthy/Synced) | ArgoCD — application tile |
+**ArgoCD — both environments, one glance**
+| Both Applications (prod + staging), both Healthy/Synced | Prod — full resource tree |
 |---|---|
-| ![ArgoCD resource tree](docs/screenshots/argocd-resource-tree.png) | ![ArgoCD application tile](docs/screenshots/argocd-applications-tile.png) |
+| ![ArgoCD both apps](docs/screenshots/argocd-both-apps.png) | ![ArgoCD prod tree](docs/screenshots/argocd-prod-tree.png) |
 
-| App response | `/api/visits` (Postgres persistence) |
+| Staging — full resource tree (separate namespace) |
+|---|
+| ![ArgoCD staging tree](docs/screenshots/argocd-staging-tree.png) |
+
+**App — prod vs staging, isolated data**
+| Prod (`version: v1`) | Staging (`version: staging`) |
 |---|---|
-| ![App home](docs/screenshots/app-home.png) | ![API visits](docs/screenshots/app-api-visits.png) |
+| ![App home](docs/screenshots/app-home.png) | ![Staging app home](docs/screenshots/staging-app-home.png) |
 
-| EKS cluster (AWS Console) | EKS nodes (2x t3.small, Ready) |
+| Prod `/api/visits` | Staging `/api/visits` (separate counter → separate DB) |
+|---|---|
+| ![API visits](docs/screenshots/app-api-visits.png) | ![Staging API visits](docs/screenshots/staging-api-visits.png) |
+
+**AWS infrastructure**
+| EKS cluster (Active) | EKS nodes (2× t3.small, Ready) |
 |---|---|
 | ![EKS cluster overview](docs/screenshots/eks-cluster-overview.png) | ![EKS compute nodes](docs/screenshots/eks-compute-nodes.png) |
+
+| RDS PostgreSQL (Available, db.t3.micro) | CloudWatch alarms (all OK) |
+|---|---|
+| ![RDS instance](docs/screenshots/rds-instance.png) | ![CloudWatch alarms](docs/screenshots/cloudwatch-alarms.png) |
+
+| Terraform remote state (S3) | Terraform state lock (DynamoDB) |
+|---|---|
+| ![S3 state bucket](docs/screenshots/s3-state-bucket.png) | ![DynamoDB lock table](docs/screenshots/dynamodb-lock-table.png) |
 
 ## Architecture
 
