@@ -6,7 +6,7 @@ tag rollout, Sealed Secrets for encrypted credentials in git, ArgoCD continuousl
 prod and staging environments, a managed RDS Postgres data tier, and Terraform-provisioned AWS
 EKS (with remote state) as the real cluster — alongside a minikube path for local development.
 
-Full docs: [docs/architecture.md](docs/architecture.md) · [docs/eks-migration.md](docs/eks-migration.md) · [docs/troubleshooting.md](docs/troubleshooting.md)
+Full docs: [docs/SETUP.md](docs/SETUP.md) (reproduce this from scratch, step by step) · [docs/architecture.md](docs/architecture.md) · [docs/eks-migration.md](docs/eks-migration.md) · [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ## Screenshots
 
@@ -178,41 +178,17 @@ set). EKS worker nodes already span 2 AZs (the node group's subnets cover both),
 redundancy exists without extra configuration; RDS itself runs single-AZ for cost
 (`multi_az = false`, a one-line flip for real HA — see [docs/eks-migration.md](docs/eks-migration.md)).
 
-## Local setup (minikube)
+## Setup — from zero to running
 
-```bash
-minikube start --driver=docker
+Complete, copy-pasteable commands (prerequisites, repo-secret formats, per-namespace secrets,
+verification, and how to add another environment) are in **[docs/SETUP.md](docs/SETUP.md)** — this
+is the canonical source, kept in one place instead of duplicated here.
 
-# ArgoCD
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml --server-side --force-conflicts
+Short version: minikube is free and local (flip `postgres.enabled: true` in `values.yaml` — no RDS
+to reach from a local cluster); EKS is real AWS infra via `infra/eks/` Terraform, with real gotchas
+along the way documented in [docs/eks-migration.md](docs/eks-migration.md).
 
-# Sealed Secrets controller
-kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/controller.yaml
-
-# Register this (private) repo with ArgoCD — see argocd/application.yaml for the repo Secret format
-kubectl apply -f argocd/application.yaml
-
-# Image pull secret for the private GHCR package
-kubectl create secret docker-registry ghcr-pull-secret -n gitops-demo \
-  --docker-server=ghcr.io --docker-username=<gh-username> --docker-password=<gh-token-with-read:packages>
-```
-On minikube, also flip `postgres.enabled: true` / `DB_HOST: postgres` in `values.yaml` — there's
-no RDS to reach from a local cluster.
-
-## Running on real AWS EKS
-
-```bash
-cd infra/bootstrap && terraform init && terraform apply   # one-time, creates the state backend
-cd ../eks && terraform init && terraform plan -out=tfplan && terraform apply "tfplan"
-aws eks update-kubeconfig --region ap-south-1 --name project3-eks
-```
-Then install ArgoCD, Sealed Secrets, and Argo CD Image Updater the same way as the minikube path,
-plus register repo credentials and image-pull secrets per namespace. Full walkthrough, real
-gotchas hit (pod density limits, cluster-specific Sealed Secrets keys, missing EBS CSI driver,
-Postgres version availability), and teardown steps: [docs/eks-migration.md](docs/eks-migration.md).
-
-**Cost note**: this is not free. Running continuously: EKS control plane (~$73/mo) + 2×`t3.small`
+**Cost note (EKS)**: not free. Running continuously: EKS control plane (~$73/mo) + 2×`t3.small`
 nodes (~$30/mo) + NAT gateway (~$32/mo) + RDS `db.t3.micro` (~$15/mo) ≈ **$150/month**. Destroy
 after a demo: `cd infra/eks && terraform destroy`.
 
