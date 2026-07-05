@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: http://host.minikube.internal:8888
+    repoURL: git://host.minikube.internal:9418/Project-3
     targetRevision: HEAD
     path: k8s
   destination:
