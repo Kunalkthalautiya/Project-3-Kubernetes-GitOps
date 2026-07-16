@@ -9,8 +9,13 @@ variable "cluster_name" {
 }
 
 variable "cluster_version" {
-  type    = string
-  default = "1.30"
+  type = string
+  # 1.30 was already in EXTENDED_SUPPORT (ends 2026-07-23, ~1 week away
+  # as of this change) and didn't meet Linkerd's current minimum (1.31+)
+  # either - bumped to 1.36, the newest version in STANDARD_SUPPORT at
+  # the time of this change (confirmed via
+  # `aws eks describe-cluster-versions`), not just "next version up."
+  default = "1.36"
 }
 
 variable "node_instance_type" {
