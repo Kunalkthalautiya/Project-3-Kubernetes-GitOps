@@ -44,7 +44,7 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       min_size       = 1
-      max_size       = 2
+      max_size       = 5
       desired_size   = var.node_desired_size
       instance_types = [var.node_instance_type]
       capacity_type  = "ON_DEMAND"
@@ -53,6 +53,28 @@ module "eks" {
 
   # demo cluster — the applying user administers it directly
   enable_cluster_creator_admin_permissions = true
+
+  # vpc-cni as a managed EKS add-on (not the default self-managed
+  # bootstrap manifest) specifically for enableNetworkPolicy - the
+  # self-managed install only ships the per-node aws-eks-nodeagent
+  # DaemonSet, not the cluster-level controller that translates
+  # NetworkPolicy objects into PolicyEndpoint CRs for it to enforce.
+  # Confirmed missing on this cluster: `kubectl get policyendpoints -A`
+  # returned nothing even with the nodeagent's own
+  # --enable-network-policy flag manually patched to true - the
+  # controller component simply isn't deployed outside the managed
+  # add-on path. Project 13 exists partly to test real NetworkPolicy
+  # enforcement (vs. minikube's no-op), so this has to actually work,
+  # not just look configured.
+  cluster_addons = {
+    vpc-cni = {
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+      configuration_values = jsonencode({
+        enableNetworkPolicy = "true"
+      })
+    }
+  }
 
   tags = {
     Project = "project-3-eks"
