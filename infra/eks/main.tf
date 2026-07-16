@@ -66,6 +66,13 @@ module "eks" {
   # add-on path. Project 13 exists partly to test real NetworkPolicy
   # enforcement (vs. minikube's no-op), so this has to actually work,
   # not just look configured.
+  # aws-ebs-csi-driver: also missing entirely by default (`aws eks
+  # list-addons` returned only vpc-cni before this). EKS 1.23+ removed
+  # the in-tree AWS EBS provisioner from kubelet itself - the `gp2`
+  # StorageClass that ships by default exists but can't actually
+  # provision anything without this driver. Needed for Project 10's
+  # observability stack (Loki/Tempo/Prometheus/Grafana PVCs) landing
+  # here next.
   cluster_addons = {
     vpc-cni = {
       resolve_conflicts_on_create = "OVERWRITE"
@@ -74,11 +81,24 @@ module "eks" {
         enableNetworkPolicy = "true"
       })
     }
+    aws-ebs-csi-driver = {
+      resolve_conflicts_on_create = "OVERWRITE"
+      resolve_conflicts_on_update = "OVERWRITE"
+    }
   }
 
   tags = {
     Project = "project-3-eks"
   }
+}
+
+# EBS CSI driver needs permission to create/attach/delete volumes - attached
+# directly to the node role rather than a dedicated IRSA role, matching this
+# file's existing demo-cluster pragmatism (enable_cluster_creator_admin_permissions
+# above takes the same shortcut deliberately, not by oversight).
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
 
 # -------------------------------------------------------------------
